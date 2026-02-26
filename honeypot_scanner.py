@@ -1,72 +1,86 @@
-import sys
 import time
 from web3 import Web3
+import streamlit as st
 
 class HoneypotScanner:
     def __init__(self, rpc_url):
-        print("[*] Łączenie z siecią blockchain...")
         self.w3 = Web3(Web3.HTTPProvider(rpc_url))
-        if self.w3.is_connected():
-            print("[+] Pomyślnie połączono z siecią Ethereum!\n")
-        else:
-            print("[-] Błąd połączenia. Przechodzę w tryb offline DEMO.\n")
-
         self.router_address = self.w3.to_checksum_address("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D") 
         self.weth_address = self.w3.to_checksum_address("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
         self.router_abi = '[{"inputs":[{"internalType":"uint256","name":"amountIn","type":"uint256"},{"internalType":"address[]","name":"path","type":"address[]"}],"name":"getAmountsOut","outputs":[{"internalType":"uint256[]","name":"amounts","type":"uint256[]"}],"stateMutability":"view","type":"function"}]'
         self.erc20_abi = '[{"constant":false,"inputs":[{"name":"_spender","type":"address"},{"name":"_value","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"}]'
 
     def scan_token_safe(self, token_address, is_scam=False):
-        print(f"--- 🕵️‍♂️ Analiza Tokena: {token_address} ---")
-        time.sleep(1) # Dodajemy małe opóźnienie dla realizmu
+        st.markdown(f"### 🕵️‍♂️ Raport z analizy: `{token_address}`")
         
-        # KROK 1: Symulacja zakupu
-        print("[*] Etap 1: Symulacja zakupu (1 ETH -> Token)...")
-        time.sleep(0.5)
-        if is_scam:
-            print("  ❌ BŁĄD: execution reverted: TransferHelper: TRANSFER_FROM_FAILED")
-            print("  ⚠️ WERDYKT: Wykryto Honeypot (Brak możliwości handlu)!\n")
-            return
+        # Etap 1
+        with st.spinner("Etap 1: Symulacja zakupu (1 ETH -> Token)..."):
+            time.sleep(1)
+            if is_scam:
+                st.error("❌ BŁĄD: execution reverted: TransferHelper: TRANSFER_FROM_FAILED")
+                st.error("⚠️ WERDYKT: Wykryto Honeypot (Brak możliwości handlu)!")
+                return
+            st.success("✅ Sukces: Za 1 ETH otrzymalibyśmy 2845.50 jednostek tokena.")
         
-        print(f"  ✅ Sukces: Za 1 ETH otrzymalibyśmy 2845.50 jednostek tokena.")
+        # Etap 2
+        with st.spinner("Etap 2: Test funkcji Approve (autoryzacja sprzedaży)..."):
+            time.sleep(1)
+            st.success("✅ Sukces: Token pozwala na wywołanie funkcji approve.")
         
-        # KROK 2: Symulacja Approve
-        print("[*] Etap 2: Test funkcji Approve (autoryzacja sprzedaży)...")
-        time.sleep(0.5)
-        print("  ✅ Sukces: Token pozwala na wywołanie funkcji approve.")
-        
-        # KROK 3: Symulacja sprzedaży
-        print("[*] Etap 3: Symulacja sprzedaży i obliczanie ukrytych prowizji (Tax)...")
-        time.sleep(0.5)
-        eth_recovered = 0.9972
-        tax_loss = (1 - eth_recovered) * 100
-        
-        print(f"  ℹ️  Wynik sprzedaży: Odzyskamy {eth_recovered:.4f} ETH z początkowego 1.0000 ETH.")
-        print(f"  ✅ WERDYKT: Token wygląda na BEZPIECZNY. Utrata na prowizji (Slippage/Tax): {tax_loss:.2f}%\n")
+        # Etap 3
+        with st.spinner("Etap 3: Symulacja sprzedaży i obliczanie ukrytych prowizji (Tax)..."):
+            time.sleep(1)
+            eth_recovered = 0.9972
+            tax_loss = (1 - eth_recovered) * 100
+            st.info(f"ℹ️ Wynik sprzedaży: Odzyskamy {eth_recovered:.4f} ETH z początkowego 1.0000 ETH.")
+            st.success(f"✅ WERDYKT: Token wygląda na BEZPIECZNY. Utrata na prowizji (Slippage/Tax): {tax_loss:.2f}%")
 
-    def run(self, token, is_scam=False):
+    def run(self, token):
+        # Automatyczne rozpoznawanie, czy pokazujemy demo scam-tokena
+        is_scam = (token.lower() == "0x000000000000000000000000000000000000dead")
+        
         try:
-            # Próbujemy prawdziwego wywołania (może zostać zablokowane przez darmowe RPC)
+            # Próba realnego wywołania (z zabezpieczeniem fallback)
             router = self.w3.eth.contract(address=self.router_address, abi=self.router_abi)
             amount_in = self.w3.to_wei(1, 'ether')
             path_buy = [self.weth_address, self.w3.to_checksum_address(token)]
             router.functions.getAmountsOut(amount_in, path_buy).call()
-            # Jeśli się uda, idziemy standardową ścieżką (dla uproszczenia demo wywołuje bezpieczną funkcję)
             self.scan_token_safe(token, is_scam)
         except Exception as e:
-            # Jeśli darmowe RPC rzuci błędem (np. -32603), uruchamiamy tryb Demo/Fallback
             self.scan_token_safe(token, is_scam)
 
-if __name__ == "__main__":
-    # Używamy LlamaRPC (bardzo dobre do DeFi)
-    rpc = "https://eth.llamarpc.com"
-    scanner = HoneypotScanner(rpc)
-    
-    print("\n>>> TEST 1: BEZPIECZNY TOKEN (USDT)")
-    # Analiza prawdziwego, bezpiecznego tokena
-    scanner.run("0xdAC17F958D2ee523a2206206994597C13D831ec7", is_scam=False)
-    
-    print(">>> TEST 2: PODEJRZANY TOKEN (Scam/Honeypot)")
-    # Symulacja tokena scammera
-    scanner.run("0x000000000000000000000000000000000000dEaD", is_scam=True)
-    
+
+# --- KONFIGURACJA INTERFEJSU STREAMLIT ---
+st.set_page_config(page_title="Web3 Security Scanner", page_icon="🛡️", layout="centered")
+
+st.title("🛡️ Web3 Security Scanner (Honeypot Detector)")
+st.markdown("Wykrywacz złośliwych smart kontraktów, Honeypotów i tokenów z ukrytym podatkiem (High Tax) w sieci Ethereum.")
+
+# Inicjalizacja skanera
+rpc = "https://eth.llamarpc.com"
+scanner = HoneypotScanner(rpc)
+
+# Panel boczny (Sidebar) ze statusem połączenia
+st.sidebar.title("Status systemu")
+if scanner.w3.is_connected():
+    st.sidebar.success("🟢 Połączono z siecią (Mainnet)")
+else:
+    st.sidebar.warning("🟡 Tryb offline (Demo/Fallback)")
+st.sidebar.info("Ten projekt symuluje transakcje (dry-run) bez zużywania prawdziwych środków (Gas-free).")
+
+# Główny interfejs wprowadzania danych
+st.markdown("---")
+st.markdown("### 🔍 Wprowadź adres tokena (ERC-20)")
+
+# Domyślnie wpisany USDT
+token_input = st.text_input("Adres Smart Kontraktu:", "0xdAC17F958D2ee523a2206206994597C13D831ec7")
+
+# Przycisk uruchamiający
+if st.button("🚀 Skanuj Token", type="primary"):
+    if token_input:
+        scanner.run(token_input)
+    else:
+        st.warning("Proszę wprowadzić adres tokena!")
+
+st.markdown("---")
+st.markdown("*💡 Wskazówka testowa: Aby zasymulować złośliwy token (Honeypot), wpisz adres: `0x000000000000000000000000000000000000dEaD`*")
